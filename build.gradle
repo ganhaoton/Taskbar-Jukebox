@@ -26,11 +26,23 @@ sourceSets.main.resources {
 }
 
 repositories {
-    // 国内镜像优先，后面保留官方源兜底。
+    // 官方 CDN 与 Minecraft 库优先；保留国内镜像和 Maven Central 兜底。
+    maven { url = 'https://libraries.minecraft.net/' }
     maven { url = 'https://neoforged.forgecdn.net/releases' }
+    maven { url = 'https://neoforged.forgecdn.net/mojang-meta' }
     maven { url = 'https://maven.aliyun.com/repository/public' }
     mavenCentral()
-    // 注意：maven.neoforged.net 在本机网络下不可达，未加入仓库列表。
+}
+
+// NeoGradle 会在插件内部注入 maven.neoforged.net（包括 detachedConfiguration 使用的仓库）。
+// 不直接清空 repositories，否则会连它生成的 ng_dummy_ng / Minecraft 依赖仓库一起删掉；
+// 这里只把该不可达源就地改写到官方 ForgeCDN，保留其余仓库和内容过滤。
+repositories.all { repo ->
+    if (repo instanceof org.gradle.api.artifacts.repositories.MavenArtifactRepository) {
+        if (repo.url.toString().contains('maven.neoforged.net')) {
+            repo.url = uri('https://neoforged.forgecdn.net/releases')
+        }
+    }
 }
 
 base {
@@ -125,9 +137,24 @@ dependencies {
     // JavaMediaTransportControls 的 JMTC 主类静态引用了 Linux/DBus 分支类型，
     // 即使只在 Windows 运行，类校验也需要这些类可解析，否则：
     // NoClassDefFoundError: org/freedesktop/dbus/interfaces/DBusInterface
-    // 与 IMPSMTC 参考项目保持一致，一并内嵌。
-    jarJar("com.github.hypfvieh:dbus-java-core:5.0.0")
-    jarJar("com.github.hypfvieh:dbus-java-transport-native-unixsocket:5.0.0")
+    // Linux 的 MPRIS 后端也直接使用同一套 dbus-java，因此显式声明 implementation。
+    implementation "com.github.hypfvieh:dbus-java-core:5.0.0"
+    jarJar("com.github.hypfvieh:dbus-java-core:[5.0.0]") {
+        version {
+            strictly "[5.0.0]"
+            prefer "5.0.0"
+        }
+    }
+
+    // transport-native-unixsocket 使用 JDK 16+ 的 Unix domain socket，不是 JNI。
+    // 它作为嵌套库交给 jarJar；构建末尾会剥掉其 module-info.class，让 FML 以自动模块
+    // 加载，从而让 core 的 ServiceLoader 能看到它自带的 ITransportProvider 声明。
+    jarJar("com.github.hypfvieh:dbus-java-transport-native-unixsocket:[5.0.0]") {
+        version {
+            strictly "[5.0.0]"
+            prefer "5.0.0"
+        }
+    }
 
     // Example optional mod dependency with JEI
     // The JEI API is declared for compile time use, while the full JEI artifact is used at runtime
@@ -171,6 +198,80 @@ tasks.withType(ProcessResources).configureEach {
 
     filesMatching(['META-INF/neoforge.mods.toml']) {
         expand replaceProperties
+    }
+}
+
+// transport 的 module-info 声明了 jdk.net，FML 的 plugin layer 无法解析时会把整个库
+// 排除在模块层之外，导致 core 的 ServiceLoader 找不到 provider。这里在 jarJar 产出的
+// -all jar 内改写嵌套 transport jar，删除 module-info.class；保留其 META-INF/services，
+// FML 会把它当作自动模块加载。
+tasks.named('jarJar').configure { jarJarTask ->
+    jarJarTask.notCompatibleWithConfigurationCache('Rewrites the nested dbus transport jar in place')
+    jarJarTask.doLast {
+        File archive = jarJarTask.archiveFile.get().asFile
+        String nestedName = 'META-INF/jarjar/dbus-java-transport-native-unixsocket-5.0.0.jar'
+
+        def source = new java.util.zip.ZipFile(archive)
+        def nestedEntry = source.getEntry(nestedName)
+        if (nestedEntry == null) {
+            source.close()
+            throw new GradleException("Nested dbus transport jar not found: ${nestedName}")
+        }
+        byte[] nestedBytes = source.getInputStream(nestedEntry).bytes
+        source.close()
+
+        File nestedTemp = File.createTempFile('taskbar-jukebox-transport-', '.jar')
+        byte[] strippedBytes
+        try {
+            nestedTemp.bytes = nestedBytes
+            def nestedZip = new java.util.zip.ZipFile(nestedTemp)
+            try {
+                def stripped = new java.io.ByteArrayOutputStream()
+                def zout = new java.util.zip.ZipOutputStream(stripped)
+                try {
+                    nestedZip.entries().each { entry ->
+                        if (entry.name != 'module-info.class') {
+                            def copy = new java.util.zip.ZipEntry(entry.name)
+                            copy.time = entry.time
+                            zout.putNextEntry(copy)
+                            if (!entry.isDirectory()) {
+                                zout.write(nestedZip.getInputStream(entry).bytes)
+                            }
+                            zout.closeEntry()
+                        }
+                    }
+                } finally {
+                    zout.close()
+                }
+                strippedBytes = stripped.toByteArray()
+            } finally {
+                nestedZip.close()
+            }
+        } finally {
+            nestedTemp.delete()
+        }
+
+        File temp = new File(archive.parentFile, archive.name + '.tmp')
+        def outer = new java.util.zip.ZipFile(archive)
+        new java.util.zip.ZipOutputStream(new FileOutputStream(temp)).withCloseable { zout ->
+            outer.entries().each { entry ->
+                def copy = new java.util.zip.ZipEntry(entry.name)
+                copy.time = entry.time
+                zout.putNextEntry(copy)
+                if (entry.name == nestedName) {
+                    zout.write(strippedBytes)
+                } else if (!entry.isDirectory()) {
+                    zout.write(outer.getInputStream(entry).bytes)
+                }
+                zout.closeEntry()
+            }
+        }
+        outer.close()
+        java.nio.file.Files.move(
+                temp.toPath(),
+                archive.toPath(),
+                java.nio.file.StandardCopyOption.REPLACE_EXISTING)
+        logger.lifecycle('Stripped module-info from nested dbus transport')
     }
 }
 

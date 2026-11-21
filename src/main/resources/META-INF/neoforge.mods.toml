@@ -8,8 +8,8 @@ version="${mod_version}"
 displayName="窗外的音乐 / Taskbar Jukebox"
 authors="ganhaoton"
 description='''
-让《网络音乐机》的音乐传入 Windows 任务栏点唱机 (Taskbar Jukebox)。
-仅客户端运行；只推送歌名、作者、播放进度与播放状态，忽略任务栏上的暂停、切歌与进度拖动操作。
+让《网络音乐机》的音乐传入系统媒体控件（Windows SMTC / Linux MPRIS）。
+仅客户端运行；只推送歌名、作者、播放进度与播放状态，不控制游戏内播放。
 '''
 
 [[dependencies.${mod_id}]]

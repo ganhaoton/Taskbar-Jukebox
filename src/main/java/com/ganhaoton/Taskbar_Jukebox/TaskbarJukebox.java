@@ -1,5 +1,9 @@
 package com.ganhaoton.Taskbar_Jukebox;
 
+import com.ganhaoton.Taskbar_Jukebox.media.MediaSessionBackend;
+import com.ganhaoton.Taskbar_Jukebox.media.MediaSessionBackends;
+import com.ganhaoton.Taskbar_Jukebox.media.MediaSessionService;
+import com.ganhaoton.Taskbar_Jukebox.media.NoopBackend;
 import com.mojang.logging.LogUtils;
 import net.neoforged.api.distmarker.Dist;
 import net.neoforged.fml.ModContainer;
@@ -7,6 +11,7 @@ import net.neoforged.fml.ModList;
 import net.neoforged.fml.common.Mod;
 import net.neoforged.fml.config.ModConfig;
 import net.neoforged.neoforge.common.NeoForge;
+import net.neoforged.neoforge.event.GameShuttingDownEvent;
 import org.slf4j.Logger;
 
 import java.util.Map;
@@ -16,8 +21,8 @@ import java.util.concurrent.ConcurrentHashMap;
 /**
  * 窗外的音乐 / Taskbar Jukebox
  *
- * <p>仅客户端：把《网络音乐机》(NetMusic) 正在播放的歌曲信息推送到 Windows 媒体播放控件。
- * 不联网，不接收任务栏控件上的暂停/切歌/拖动进度等操作。</p>
+ * <p>仅客户端：把《网络音乐机》(NetMusic) 正在播放的歌曲信息推送到系统媒体控件
+ * （Windows SMTC / Linux MPRIS）。不联网，不接收系统控件上的暂停/切歌/拖动进度等操作。</p>
  */
 @Mod(value = TaskbarJukebox.MODID, dist = Dist.CLIENT)
 public final class TaskbarJukebox {
@@ -30,6 +35,8 @@ public final class TaskbarJukebox {
     private static final Set<String> ONCE_KEYS = ConcurrentHashMap.newKeySet();
     private static final Map<String, Long> LAST_DEBUG = new ConcurrentHashMap<>();
 
+    private static volatile MediaSessionService mediaSession;
+
     public TaskbarJukebox(ModContainer container) {
         // 注册客户端配置：详细诊断日志默认关闭，玩家可在 NeoForge 模组配置页面开启。
         container.registerConfig(ModConfig.Type.CLIENT, JukeboxConfig.SPEC);
@@ -38,20 +45,31 @@ public final class TaskbarJukebox {
                 System.getProperty("os.name"), System.getProperty("os.arch"),
                 System.getProperty("java.version"), isDebug());
 
-        // 能力探测：非 Windows / 版本过旧 / 缺少前置类时，模组退化为完全空转的「空气模组」。
-        // 不注册事件、不启动 SMTC 线程、不触碰 native DLL，从根本上避免崩溃。
-        if (!SystemSupport.isSupported()) {
-            LOGGER.info("Taskbar Jukebox 将以空模组模式运行：{}", SystemSupport.reason());
+        // 平台选择：Windows -> SMTC，Linux -> MPRIS，其他/前置缺失 -> Noop。
+        // 工厂只构造对象，不建立 native/D-Bus 连接；真正的初始化在媒体线程首次 tick 时进行。
+        MediaSessionBackend backend = MediaSessionBackends.create();
+        if (backend instanceof NoopBackend noop) {
+            LOGGER.info("Taskbar Jukebox 将以空模组模式运行：{}", noop.reason());
             return;
         }
 
         boolean netmusicLoaded = ModList.get().isLoaded("netmusic");
         debug("NetMusic 安装状态: {}", netmusicLoaded ? "已安装" : "未安装（模组不会推送任何曲目）");
 
-        // SMTC 的 init 与所有操作都在专用线程执行（见 SmtcManager 线程模型说明）。
-        // 这里只注册客户端 tick：渲染线程读 NetMusic，投递给 SMTC 线程。
-        NeoForge.EVENT_BUS.addListener(SmtcManager::onClientTick);
+        // 渲染线程只读 NetMusic 并投递快照；初始化与所有平台调用由媒体专用线程完成。
+        mediaSession = new MediaSessionService(backend);
+        NeoForge.EVENT_BUS.addListener(mediaSession::onClientTick);
+        NeoForge.EVENT_BUS.addListener(TaskbarJukebox::onGameShuttingDown);
         LOGGER.info("Taskbar Jukebox 客户端已加载（{}），等待 NetMusic 播放信息。", SystemSupport.reason());
+    }
+
+    /** 客户端停止时释放媒体会话；不等待专用线程结束。 */
+    private static void onGameShuttingDown(GameShuttingDownEvent event) {
+        MediaSessionService service = mediaSession;
+        mediaSession = null;
+        if (service != null) {
+            service.close();
+        }
     }
 
     /**
