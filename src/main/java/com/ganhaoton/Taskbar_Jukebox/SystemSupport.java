@@ -3,72 +3,136 @@ package com.ganhaoton.Taskbar_Jukebox;
 import java.util.Locale;
 
 /**
- * 启动时的运行环境能力探测，只做「不会触碰 native 代码」的静态检查。
+ * 运行环境能力的门面。
  *
- * <p>本模组的 SMTC 推送依赖 Windows 10/11 的 SystemMediaTransportControls，
- * 以及前置库的三个 Java 类（JNA、JavaMediaTransportControls、DBus 接口）。
- * 只要有一项不满足，就不能加载/初始化 native DLL——否则在非 Windows 或
- * 过旧系统上会出现 UnsatisfiedLinkError / Invalid memory access 乃至崩溃。</p>
+ * <p>内部按平台拆分探测：Windows 只看 SMTC 需要的系统版本与 JMTC/JNA/DBus 类；
+ * Linux 只看 session bus 地址与 dbus-java 核心/transport 类。探测失败时返回
+ * 对应原因，由 {@code MediaSessionBackends} 选择 {@code NoopBackend}。</p>
  *
- * <p>探测失败时，主类不会注册任何事件监听器、不会启动 SMTC 线程，模组退化为
- * 完全空转的「空气模组」，既不会崩溃也不会产生任何日志刷屏。</p>
- *
- * <p>注意：这里刻意不调用 {@code JMTC.getInstance()}，因为那会真正进入 native
- * init()；能力探测必须停留在 Class.forName(..., initialize=false) 层面。</p>
+ * <p>这里刻意只做 {@code Class.forName(..., initialize=false)} 与系统属性/环境变量
+ * 检查，不调用 {@code JMTC.getInstance()}，也不建立 D-Bus 连接；真正的初始化
+ * 由后端在专用线程上执行。</p>
  */
 public final class SystemSupport {
-    /** 能力探测是否通过；在类首次加载时计算一次并缓存。 */
-    public static final boolean SUPPORTED;
-    /** 探测结论的可读说明，用于日志。 */
-    public static final String REASON;
+    public enum Platform {
+        WINDOWS,
+        LINUX,
+        OTHER
+    }
+
+    private static final String OS_NAME = System.getProperty("os.name", "");
+    private static final Platform PLATFORM = detectPlatform(OS_NAME);
 
     private static final String REQ_JNA = "com.sun.jna.Native";
     private static final String REQ_JMTC = "io.github.selemba1000.JMTC";
-    private static final String REQ_DBUS = "org.freedesktop.dbus.interfaces.DBusInterface";
+    private static final String REQ_DBUS_INTERFACE = "org.freedesktop.dbus.interfaces.DBusInterface";
+    private static final String REQ_DBUS_CORE = "org.freedesktop.dbus.connections.impl.DBusConnectionBuilder";
+    private static final String REQ_DBUS_TRANSPORT = "org.freedesktop.dbus.transport.jre.NativeTransportProvider";
+
+    private static final boolean WINDOWS_SMTC_SUPPORTED;
+    private static final String WINDOWS_SMTC_REASON;
+    private static final boolean LINUX_MPRIS_SUPPORTED;
+    private static final String LINUX_MPRIS_REASON;
 
     static {
-        boolean supported = false;
-        String reason;
+        boolean winSupported = false;
+        String winReason;
 
-        String os = System.getProperty("os.name", "");
-        String version = System.getProperty("os.version", "");
-        String osLower = os.toLowerCase(Locale.ROOT);
-
-        if (!osLower.contains("win")) {
-            reason = "非 Windows 系统 (os.name=" + os + ")";
-        } else {
+        if (PLATFORM == Platform.WINDOWS) {
+            String version = System.getProperty("os.version", "");
             Integer major = parseMajor(version);
             // Win10/Win11/Server2016+ 的 os.version 主版本为 10；Win8.1=6.3、Win7=6.1。
-            // SMTC 任务栏媒体卡片需要 Windows 10 1809+，旧版直接降级为空模组。
             if (major != null && major < 10) {
-                reason = "Windows 版本过低，SMTC 需要 Windows 10/11 (os.version=" + version + ")";
+                winReason = "Windows 版本过低，SMTC 需要 Windows 10/11 (os.version=" + version + ")";
             } else {
-                String missing = firstMissingClass();
+                String missing = firstMissingClass(REQ_JNA, REQ_JMTC, REQ_DBUS_INTERFACE);
                 if (missing != null) {
-                    reason = "缺少 SMTC 前置类: " + missing;
+                    winReason = "缺少 SMTC 前置类: " + missing;
                 } else {
-                    supported = true;
-                    reason = "SMTC 环境可用 (os.name=" + os + ", os.version=" + version + ")";
+                    winSupported = true;
+                    winReason = "SMTC 环境可用 (os.name=" + OS_NAME + ", os.version=" + version + ")";
                 }
             }
+        } else {
+            winReason = "非 Windows 系统 (os.name=" + OS_NAME + ")";
         }
 
-        SUPPORTED = supported;
-        REASON = reason;
+        WINDOWS_SMTC_SUPPORTED = winSupported;
+        WINDOWS_SMTC_REASON = winReason;
+
+        boolean linuxSupported = false;
+        String linuxReason;
+
+        if (PLATFORM == Platform.LINUX) {
+            String address = System.getenv("DBUS_SESSION_BUS_ADDRESS");
+            if (address == null || address.isBlank()) {
+                linuxReason = "缺少 DBUS_SESSION_BUS_ADDRESS，无法连接 session bus";
+            } else {
+                String missing = firstMissingClass(REQ_DBUS_CORE, REQ_DBUS_TRANSPORT);
+                if (missing != null) {
+                    linuxReason = "缺少 MPRIS 前置类: " + missing;
+                } else {
+                    linuxSupported = true;
+                    linuxReason = "MPRIS 环境可用 (os.name=" + OS_NAME + ")";
+                }
+            }
+        } else {
+            linuxReason = "非 Linux 系统 (os.name=" + OS_NAME + ")";
+        }
+
+        LINUX_MPRIS_SUPPORTED = linuxSupported;
+        LINUX_MPRIS_REASON = linuxReason;
     }
 
     private SystemSupport() {
     }
 
+    public static Platform platform() {
+        return PLATFORM;
+    }
+
+    public static boolean isWindows() {
+        return PLATFORM == Platform.WINDOWS;
+    }
+
+    public static boolean isLinux() {
+        return PLATFORM == Platform.LINUX;
+    }
+
+    public static boolean isWindowsSmtcSupported() {
+        return WINDOWS_SMTC_SUPPORTED;
+    }
+
+    public static boolean isLinuxMprisSupported() {
+        return LINUX_MPRIS_SUPPORTED;
+    }
+
+    /** 当前平台是否存在可用的媒体会话后端。 */
     public static boolean isSupported() {
-        return SUPPORTED;
+        return WINDOWS_SMTC_SUPPORTED || LINUX_MPRIS_SUPPORTED;
     }
 
+    /** 当前平台的能力探测说明，用于启动日志。 */
     public static String reason() {
-        return REASON;
+        return switch (PLATFORM) {
+            case WINDOWS -> WINDOWS_SMTC_REASON;
+            case LINUX -> LINUX_MPRIS_REASON;
+            case OTHER -> "非 Windows/Linux 系统 (os.name=" + OS_NAME + ")";
+        };
     }
 
-    /** 解析 os.version 的主版本号；格式异常时返回 null（不误杀，交由后续 native 初始化兜底）。 */
+    private static Platform detectPlatform(String osName) {
+        String lower = osName.toLowerCase(Locale.ROOT);
+        if (lower.contains("win")) {
+            return Platform.WINDOWS;
+        }
+        if (lower.contains("linux")) {
+            return Platform.LINUX;
+        }
+        return Platform.OTHER;
+    }
+
+    /** 解析 os.version 的主版本号；格式异常时返回 null（不误杀，交由后续初始化兜底）。 */
     private static Integer parseMajor(String version) {
         if (version == null || version.isEmpty()) {
             return null;
@@ -85,9 +149,9 @@ public final class SystemSupport {
      * 检查前置类是否存在。使用 initialize=false，避免触发 JMTC 静态初始化进入 native。
      * 返回第一个缺失类的描述，全部存在则返回 null。
      */
-    private static String firstMissingClass() {
+    private static String firstMissingClass(String... names) {
         ClassLoader loader = SystemSupport.class.getClassLoader();
-        for (String name : new String[]{REQ_JNA, REQ_JMTC, REQ_DBUS}) {
+        for (String name : names) {
             try {
                 Class.forName(name, false, loader);
             } catch (Throwable t) {

@@ -1,31 +1,34 @@
 # 窗外的音乐 / Taskbar Jukebox
 
-让《网络音乐机》的旋律，在 Windows 任务栏上继续流淌。
+让《网络音乐机》的旋律，在系统媒体控件上继续流淌。
 
-这是一个 Minecraft 1.21.1 NeoForge 的**纯客户端**模组：它读取《网络音乐机》（NetMusic）正在播放的曲目信息，单向推送到 Windows 媒体播放控件，供任务栏媒体卡片与各类任务栏歌词插件使用。模组不联网、不改动游戏播放行为。
+这是一个 Minecraft 1.21.1 NeoForge 的**纯客户端**模组：它读取《网络音乐机》（NetMusic）正在播放的曲目信息，单向推送到系统媒体控件（Windows SMTC / Linux MPRIS），供 Windows 任务栏媒体卡片、任务栏歌词插件以及 KDE Plasma 等 MPRIS 桌面媒体控件使用。模组不联网、不改动游戏播放行为。
 
 ## 功能特性
 
 - **只读推送**：推送歌名、作者、播放进度、时长与播放/暂停状态，不写入、不联网。
-- **忽略系统操作**：任务栏上的播放、暂停、停止按钮保持可用以便 Windows 建立媒体会话，但回调全部为空——点按不会回写游戏。
+- **忽略系统操作**：Windows 任务栏上的播放、暂停、停止按钮保持可用以便系统建立媒体会话，但回调全部为空；Linux MPRIS 的 `CanControl/CanPlay/CanPause/CanSeek/CanGoNext/CanGoPrevious` 均为 `false`。点按不会回写游戏。
+- **Linux MPRIS**：在支持 MPRIS 的桌面（如 KDE Plasma）显示歌名、作者、播放状态与进度；只读、不可控制游戏。
 - **软依赖 NetMusic**：未安装 NetMusic 时模组照常加载，只是不推送任何曲目。
-- **系统能力探测**：非 Windows、Windows 8.1 及更早版本，或缺少 SMTC 前置类时，模组自动降级为完全空转的「空气模组」，不加载原生库、不注册事件，从根本上避免崩溃。
+- **系统能力探测**：非 Windows/Linux、Windows 8.1 及更早版本、Linux 缺少 `DBUS_SESSION_BUS_ADDRESS`，或缺少前置类时，模组自动降级为完全空转的「空气模组」，不加载原生库、不建立 D-Bus 连接、不注册事件，从根本上避免崩溃。
 - **诊断日志默认关闭**：可在 NeoForge 模组配置页面开启，也可用 JVM 参数强制覆盖。
-- **前置库随包携带**：`JavaMediaTransportControls` 与所需 DBus 依赖通过 jarJar 内嵌，玩家无需单独安装前置。
+- **前置库随包携带**：`JavaMediaTransportControls`、dbus-java 及其 Unix socket transport 通过 jarJar 内嵌，玩家无需单独安装前置；Linux 不新增 JNI/native 依赖。
 
 ## 环境要求
 
 - Minecraft **1.21.1**
 - NeoForge **21.1.235** 或更高
 - Java **21**
-- Windows 10 / Windows 11（任务栏媒体控件依赖系统 SMTC；其他系统会自动空转）
+- Windows 10 / Windows 11（任务栏媒体控件依赖系统 SMTC）
+- 或 Linux + 支持 MPRIS 的桌面（如 KDE Plasma），且存在可用的 session D-Bus
+- 其他系统（macOS、无 session bus 的 Linux 等）会自动空转
 - 《网络音乐机》NetMusic（可选，但需要有它播放音乐才有内容可推送）
 
 ## 安装
 
 1. 安装 NeoForge 1.21.1（21.1.235+）。
 2. 将构建产物中**带 `-all` 后缀**的 jar（例如 `taskbar_jukebox-1.0.7-all.jar`）放入游戏目录的 `mods` 文件夹。
-3. 启动游戏，进入世界并用 NetMusic 播放音乐；任务栏媒体控件或歌词插件即可读到曲目信息。
+3. 启动游戏，进入世界并用 NetMusic 播放音乐；Windows 任务栏媒体控件、KDE Plasma 媒体控件或歌词插件即可读到曲目信息。
 
 > 注意：不带 `-all` 后缀的是不含前置库的瘦 jar，单独使用会因缺少 `JavaMediaTransportControls` 而无法工作。
 
@@ -44,11 +47,12 @@
 ## 工作原理
 
 - **读取**：在渲染线程通过反射读取客户端 `SoundManager` 的声音引擎，定位 NetMusic 的音源，取播放刻度与总刻度换算为进度；歌名、作者、时长则来自对应方块实体中唱片的数据。方块实体上的播放标记存在同步延迟，因此播放状态以音源是否停止为准。
-- **推送**：前置库的原生 DLL 通过 `winrt::init_apartment()` 创建与线程绑定的 SMTC 对象，因此初始化与全部推送操作都在同一条专用守护线程上执行；渲染线程只负责读取并把不可变的曲目快照投递过去。这样既避免跨线程调用被静默丢弃，也避免在其他线程初始化导致的原生崩溃。
+- **推送**：读取与推送已解耦为 `MediaSessionBackend`。Windows 后端把原 SMTC 逻辑收进 `WindowsSmtcBackend`；前置库的原生 DLL 通过 `winrt::init_apartment()` 创建与线程绑定的 SMTC 对象，因此初始化与全部推送操作都在同一条专用守护线程上执行。Linux 后端 `LinuxMprisBackend` 在同一类专用线程上建立 dbus-java 连接、导出 `org.mpris.MediaPlayer2` 对象并发送 `PropertiesChanged`；渲染线程只负责读取并把不可变的曲目快照投递过去。
+- **降级**：非 Windows/Linux、旧 Windows、Linux 无 session bus、服务名冲突或 D-Bus 初始化失败时，后端替换为 `NoopBackend`，不向游戏主线程抛异常。
 
 ## 从源码构建
 
-需要 JDK 21。Gradle Wrapper 已配置国内镜像，依赖仓库亦优先使用国内镜像。
+需要 JDK 21。Gradle Wrapper 已配置国内镜像；NeoForge 依赖仓库优先使用官方 ForgeCDN，并把 NeoGradle 注入的 `maven.neoforged.net` 就地改写为 ForgeCDN。
 
 ```bash
 JAVA_HOME=/path/to/jdk-21 ./gradlew build
@@ -63,7 +67,22 @@ JAVA_HOME=/path/to/jdk-21 ./gradlew build
 - **任务栏没有曲目信息**：确认使用 `-all` jar、已进入世界、NetMusic 正在播放；开启诊断日志后查看是否出现「已推送 SMTC」。
 - **日志出现 `Invalid memory access`**：初始化线程被污染，请确认使用本版本未改动的线程模型。
 - **日志出现 `Module Reflect reads more than one module named com.sun.jna`**：不要再次把 JNA 打包进模组，Minecraft 本体已提供该库。
-- **在 Linux / macOS 上运行**：模组会按设计空转，这是预期行为。
+- **Linux 没有媒体控件**：确认 `echo $DBUS_SESSION_BUS_ADDRESS` 非空，且桌面支持 MPRIS；开启诊断日志后查看是否出现「Linux MPRIS 媒体会话已就绪」。
+- **Linux 服务名冲突**：同一 session bus 上只允许第一个实例注册 `org.mpris.MediaPlayer2.taskbarjukebox`；后启动的实例会安静降级为空模组。
+- **在 macOS 上运行**：模组会按设计空转，这是预期行为。
+
+### Linux 验证命令
+
+```bash
+playerctl -p org.mpris.MediaPlayer2.taskbarjukebox status
+playerctl -p org.mpris.MediaPlayer2.taskbarjukebox metadata
+playerctl -p org.mpris.MediaPlayer2.taskbarjukebox position
+busctl --user introspect org.mpris.MediaPlayer2.taskbarjukebox /org/mpris/MediaPlayer2
+busctl --user get-property org.mpris.MediaPlayer2.taskbarjukebox /org/mpris/MediaPlayer2 \
+  org.mpris.MediaPlayer2.Player PlaybackStatus
+```
+
+`CanControl/CanPlay/CanPause/CanSeek/CanGoNext/CanGoPrevious` 应全部为 `false`；桌面控件不应能控制游戏。
 
 ## 致谢
 
@@ -79,32 +98,35 @@ JAVA_HOME=/path/to/jdk-21 ./gradlew build
 
 # Taskbar Jukebox
 
-Let the melodies of NetMusic find a second home on the Windows taskbar.
+Let the melodies of NetMusic find a second home in your system media controls.
 
-Taskbar Jukebox is a **client-side-only** mod for Minecraft 1.21.1 on NeoForge. It reads the track currently playing in NetMusic (the in-game internet radio) and forwards it, one way, to the Windows media playback controls — making the song available to taskbar media cards and taskbar lyric plugins. It never connects to the network and never alters playback in the game.
+Taskbar Jukebox is a **client-side-only** mod for Minecraft 1.21.1 on NeoForge. It reads the track currently playing in NetMusic (the in-game internet radio) and forwards it, one way, to the system media controls — Windows SMTC or Linux MPRIS — making the song available to Windows taskbar media cards, taskbar lyric plugins and MPRIS desktops such as KDE Plasma. It never connects to the network and never alters playback in the game.
 
 ## Features
 
 - **Read-only forwarding.** Publishes the title, artist, playback position, duration and playing/paused state. Nothing is written back and no network request is made.
-- **System controls are inert.** Play, pause and stop remain enabled so Windows will create a media session, but every callback is empty — clicking them has no effect on the game.
+- **System controls are inert.** On Windows, play/pause/stop remain enabled so the system creates a media session, but every callback is empty. On Linux, all MPRIS `Can*` capabilities are `false` and every control method is a no-op. Clicking them has no effect on the game.
+- **Linux MPRIS.** Shows title, artist, playback status and position in MPRIS desktops such as KDE Plasma; read-only and unable to control the game.
 - **NetMusic is optional.** Without NetMusic installed the mod still loads cleanly; it simply has nothing to publish.
-- **Capability detection.** On non-Windows systems, on Windows 8.1 or older, or when the SMTC prerequisites are missing, the mod degrades into a complete no-op — no native library is loaded and no event is registered, so it cannot crash the game.
+- **Capability detection.** On non-Windows/Linux systems, on Windows 8.1 or older, on Linux without `DBUS_SESSION_BUS_ADDRESS`, or when prerequisites are missing, the mod degrades into a complete no-op — no native library is loaded, no D-Bus connection is opened and no event is registered, so it cannot crash the game.
 - **Diagnostic logging off by default.** Enable it from the NeoForge mod config screen, or force it with a JVM argument.
-- **Prerequisites bundled.** `JavaMediaTransportControls` and its DBus dependencies are embedded via jarJar; players need to install nothing extra.
+- **Prerequisites bundled.** `JavaMediaTransportControls`, dbus-java and its Unix-socket transport are embedded via jarJar; players need to install nothing extra, and Linux gains no new JNI/native dependency.
 
 ## Requirements
 
 - Minecraft **1.21.1**
 - NeoForge **21.1.235** or newer
 - Java **21**
-- Windows 10 / Windows 11 — taskbar media controls rely on the system SMTC; other systems cause the mod to no-op by design
+- Windows 10 / Windows 11 — taskbar media controls rely on the system SMTC
+- or Linux with an MPRIS-capable desktop (such as KDE Plasma) and a working session D-Bus
+- other systems (macOS, Linux without a session bus, etc.) cause the mod to no-op by design
 - NetMusic (optional, though you need it playing something to have anything to forward)
 
 ## Installation
 
 1. Install NeoForge 1.21.1 (21.1.235 or newer).
 2. Copy the build artifact whose name ends in **`-all`** (for example `taskbar_jukebox-1.0.7-all.jar`) into the game's `mods` folder.
-3. Launch the game, join a world and start playback with NetMusic. The taskbar media controls and any lyric plugin will now see the track.
+3. Launch the game, join a world and start playback with NetMusic. Windows taskbar media controls, the KDE Plasma media widget and any lyric plugin will now see the track.
 
 > The jar without the `-all` suffix is a thin artifact without the bundled prerequisites; on its own it cannot work because `JavaMediaTransportControls` is missing.
 
@@ -123,11 +145,12 @@ Keep logging on while troubleshooting and off during normal play.
 ## How it works
 
 - **Reading.** On the render thread the mod reflects into the client `SoundManager`'s sound engine, locates the NetMusic sound instance and converts its tick counters into a playback position. Title, artist and duration come from the disc data of the corresponding block entity. Because the block entity's play flag is subject to synchronization lag, the playing state is derived from whether the sound instance has stopped.
-- **Publishing.** The bundled native DLL calls `winrt::init_apartment()`, which binds the SMTC object to the thread that created it. Initialization and every subsequent update therefore run on one dedicated daemon thread; the render thread only reads NetMusic and hands over an immutable snapshot. This avoids both silently discarded cross-thread calls and native crashes caused by initializing on an unrelated thread.
+- **Publishing.** Reading is decoupled from publishing by a thin `MediaSessionBackend`. The Windows backend keeps the original SMTC path: the bundled native DLL calls `winrt::init_apartment()`, which binds the SMTC object to the thread that created it. The Linux backend establishes a dbus-java connection, exports `org.mpris.MediaPlayer2`, and emits `PropertiesChanged` on the same dedicated daemon thread. The render thread only reads NetMusic and hands over an immutable snapshot.
+- **Fallback.** On non-Windows/Linux systems, old Windows, Linux without a session bus, service-name conflicts or D-Bus initialization failures, the backend is replaced with `NoopBackend`; no exception reaches the game thread.
 
 ## Building from source
 
-JDK 21 is required. The Gradle wrapper and dependency repositories are configured with domestic mirrors.
+JDK 21 is required. The Gradle wrapper is configured with domestic mirrors; NeoForge artifacts prefer the official ForgeCDN, and NeoGradle's injected `maven.neoforged.net` URL is rewritten to ForgeCDN in place.
 
 ```bash
 JAVA_HOME=/path/to/jdk-21 ./gradlew build
@@ -142,7 +165,22 @@ If several JDKs are installed, point `JAVA_HOME` explicitly at JDK 21. Running G
 - **No track in the taskbar.** Make sure you are using the `-all` jar, that you are in a world, and that NetMusic is playing. With diagnostics enabled, look for a "已推送 SMTC" line in the log.
 - **`Invalid memory access` in the log.** The initialization thread has been polluted; keep the threading model in this version untouched.
 - **`Module Reflect reads more than one module named com.sun.jna`.** Do not bundle JNA again — Minecraft already provides it.
-- **Running on Linux or macOS.** The mod intentionally does nothing; this is expected behavior.
+- **No media controls on Linux.** Check that `echo $DBUS_SESSION_BUS_ADDRESS` is non-empty and your desktop supports MPRIS; with diagnostics enabled, look for the "Linux MPRIS 媒体会话已就绪" line.
+- **MPRIS service-name conflict.** Only the first instance on a session bus may own `org.mpris.MediaPlayer2.taskbarjukebox`; later instances quietly degrade to a no-op.
+- **Running on macOS.** The mod intentionally does nothing; this is expected behavior.
+
+### Linux verification
+
+```bash
+playerctl -p org.mpris.MediaPlayer2.taskbarjukebox status
+playerctl -p org.mpris.MediaPlayer2.taskbarjukebox metadata
+playerctl -p org.mpris.MediaPlayer2.taskbarjukebox position
+busctl --user introspect org.mpris.MediaPlayer2.taskbarjukebox /org/mpris/MediaPlayer2
+busctl --user get-property org.mpris.MediaPlayer2.taskbarjukebox /org/mpris/MediaPlayer2 \
+  org.mpris.MediaPlayer2.Player PlaybackStatus
+```
+
+All `CanControl/CanPlay/CanPause/CanSeek/CanGoNext/CanGoPrevious` capabilities should be `false`; desktop controls must not be able to control the game.
 
 ## Acknowledgements
 

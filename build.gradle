@@ -26,11 +26,23 @@ sourceSets.main.resources {
 }
 
 repositories {
-    // 国内镜像优先，后面保留官方源兜底。
+    // 官方 CDN 与 Minecraft 库优先；保留国内镜像和 Maven Central 兜底。
+    maven { url = 'https://libraries.minecraft.net/' }
     maven { url = 'https://neoforged.forgecdn.net/releases' }
+    maven { url = 'https://neoforged.forgecdn.net/mojang-meta' }
     maven { url = 'https://maven.aliyun.com/repository/public' }
     mavenCentral()
-    // 注意：maven.neoforged.net 在本机网络下不可达，未加入仓库列表。
+}
+
+// NeoGradle 会在插件内部注入 maven.neoforged.net（包括 detachedConfiguration 使用的仓库）。
+// 不直接清空 repositories，否则会连它生成的 ng_dummy_ng / Minecraft 依赖仓库一起删掉；
+// 这里只把该不可达源就地改写到官方 ForgeCDN，保留其余仓库和内容过滤。
+repositories.all { repo ->
+    if (repo instanceof org.gradle.api.artifacts.repositories.MavenArtifactRepository) {
+        if (repo.url.toString().contains('maven.neoforged.net')) {
+            repo.url = uri('https://neoforged.forgecdn.net/releases')
+        }
+    }
 }
 
 base {
@@ -125,9 +137,23 @@ dependencies {
     // JavaMediaTransportControls 的 JMTC 主类静态引用了 Linux/DBus 分支类型，
     // 即使只在 Windows 运行，类校验也需要这些类可解析，否则：
     // NoClassDefFoundError: org/freedesktop/dbus/interfaces/DBusInterface
-    // 与 IMPSMTC 参考项目保持一致，一并内嵌。
-    jarJar("com.github.hypfvieh:dbus-java-core:5.0.0")
-    jarJar("com.github.hypfvieh:dbus-java-transport-native-unixsocket:5.0.0")
+    // Linux 的 MPRIS 后端也直接使用同一套 dbus-java，因此显式声明 implementation。
+    // transport-native-unixsocket 使用 JDK 16+ 的 Unix domain socket，不是 JNI，
+    // 不引入额外 native 库。
+    implementation "com.github.hypfvieh:dbus-java-core:5.0.0"
+    implementation "com.github.hypfvieh:dbus-java-transport-native-unixsocket:5.0.0"
+    jarJar("com.github.hypfvieh:dbus-java-core:[5.0.0]") {
+        version {
+            strictly "[5.0.0]"
+            prefer "5.0.0"
+        }
+    }
+    jarJar("com.github.hypfvieh:dbus-java-transport-native-unixsocket:[5.0.0]") {
+        version {
+            strictly "[5.0.0]"
+            prefer "5.0.0"
+        }
+    }
 
     // Example optional mod dependency with JEI
     // The JEI API is declared for compile time use, while the full JEI artifact is used at runtime
