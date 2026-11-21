@@ -7,8 +7,6 @@ import org.freedesktop.dbus.annotations.DBusProperties;
 import org.freedesktop.dbus.annotations.DBusProperty;
 import org.freedesktop.dbus.interfaces.DBusInterface;
 
-import java.util.Map;
-
 /**
  * MPRIS Player 接口。
  *
@@ -21,7 +19,7 @@ import java.util.Map;
         @DBusProperty(name = "LoopStatus", type = String.class, access = DBusProperty.Access.READ),
         @DBusProperty(name = "Rate", type = Double.class, access = DBusProperty.Access.READ),
         @DBusProperty(name = "Shuffle", type = Boolean.class, access = DBusProperty.Access.READ),
-        @DBusProperty(name = "Metadata", type = Map.class, access = DBusProperty.Access.READ),
+        @DBusProperty(name = "Metadata", type = MprisMetadataType.class, access = DBusProperty.Access.READ),
         @DBusProperty(name = "Volume", type = Double.class, access = DBusProperty.Access.READ),
         @DBusProperty(name = "Position", type = Long.class, access = DBusProperty.Access.READ),
         @DBusProperty(name = "MinimumRate", type = Double.class, access = DBusProperty.Access.READ),
