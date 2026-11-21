@@ -220,24 +220,35 @@ tasks.named('jarJar').configure { jarJarTask ->
         byte[] nestedBytes = source.getInputStream(nestedEntry).bytes
         source.close()
 
-        def stripped = new java.io.ByteArrayOutputStream()
-        new java.util.zip.ZipInputStream(new java.io.ByteArrayInputStream(nestedBytes)).withCloseable { zin ->
-            new java.util.zip.ZipOutputStream(stripped).withCloseable { zout ->
-                java.util.zip.ZipEntry entry
-                while ((entry = zin.nextEntry) != null) {
-                    if (entry.name == 'module-info.class') {
-                        zin.closeEntry()
-                        continue
+        File nestedTemp = File.createTempFile('taskbar-jukebox-transport-', '.jar')
+        byte[] strippedBytes
+        try {
+            nestedTemp.bytes = nestedBytes
+            def nestedZip = new java.util.zip.ZipFile(nestedTemp)
+            try {
+                def stripped = new java.io.ByteArrayOutputStream()
+                def zout = new java.util.zip.ZipOutputStream(stripped)
+                try {
+                    nestedZip.entries().each { entry ->
+                        if (entry.name != 'module-info.class') {
+                            def copy = new java.util.zip.ZipEntry(entry.name)
+                            copy.time = entry.time
+                            zout.putNextEntry(copy)
+                            if (!entry.isDirectory()) {
+                                zout.write(nestedZip.getInputStream(entry).bytes)
+                            }
+                            zout.closeEntry()
+                        }
                     }
-                    def copy = new java.util.zip.ZipEntry(entry.name)
-                    copy.time = entry.time
-                    zout.putNextEntry(copy)
-                    if (!entry.isDirectory()) {
-                        zout.write(zin.bytes)
-                    }
-                    zout.closeEntry()
+                } finally {
+                    zout.close()
                 }
+                strippedBytes = stripped.toByteArray()
+            } finally {
+                nestedZip.close()
             }
+        } finally {
+            nestedTemp.delete()
         }
 
         File temp = new File(archive.parentFile, archive.name + '.tmp')
@@ -248,7 +259,7 @@ tasks.named('jarJar').configure { jarJarTask ->
                 copy.time = entry.time
                 zout.putNextEntry(copy)
                 if (entry.name == nestedName) {
-                    zout.write(stripped.toByteArray())
+                    zout.write(strippedBytes)
                 } else if (!entry.isDirectory()) {
                     zout.write(outer.getInputStream(entry).bytes)
                 }
