@@ -12,7 +12,7 @@
 - **软依赖 NetMusic**：未安装 NetMusic 时模组照常加载，只是不推送任何曲目。
 - **系统能力探测**：非 Windows/Linux、Windows 8.1 及更早版本、Linux 缺少 `DBUS_SESSION_BUS_ADDRESS`，或缺少前置类时，模组自动降级为完全空转的「空气模组」，不加载原生库、不建立 D-Bus 连接、不注册事件，从根本上避免崩溃。
 - **诊断日志默认关闭**：可在 NeoForge 模组配置页面开启，也可用 JVM 参数强制覆盖。
-- **前置库随包携带**：`JavaMediaTransportControls`、dbus-java 及其 Unix socket transport 通过 jarJar 内嵌，玩家无需单独安装前置；Linux 不新增 JNI/native 依赖。
+- **前置库随包携带**：`JavaMediaTransportControls` 与 dbus-java core 通过 jarJar 内嵌；dbus-java 的 JDK Unix socket transport 类平铺进模组 jar，避免 FML 嵌套库加载时 provider 不可见。玩家无需单独安装前置，Linux 不新增 JNI/native 依赖。
 
 ## 环境要求
 
@@ -110,7 +110,7 @@ Taskbar Jukebox is a **client-side-only** mod for Minecraft 1.21.1 on NeoForge. 
 - **NetMusic is optional.** Without NetMusic installed the mod still loads cleanly; it simply has nothing to publish.
 - **Capability detection.** On non-Windows/Linux systems, on Windows 8.1 or older, on Linux without `DBUS_SESSION_BUS_ADDRESS`, or when prerequisites are missing, the mod degrades into a complete no-op — no native library is loaded, no D-Bus connection is opened and no event is registered, so it cannot crash the game.
 - **Diagnostic logging off by default.** Enable it from the NeoForge mod config screen, or force it with a JVM argument.
-- **Prerequisites bundled.** `JavaMediaTransportControls`, dbus-java and its Unix-socket transport are embedded via jarJar; players need to install nothing extra, and Linux gains no new JNI/native dependency.
+- **Prerequisites bundled.** `JavaMediaTransportControls` and dbus-java core are embedded via jarJar; dbus-java's JDK Unix-socket transport classes are flattened into the mod jar so the provider stays visible under FML's nested-library loading. Players need to install nothing extra, and Linux gains no new JNI/native dependency.
 
 ## Requirements
 
