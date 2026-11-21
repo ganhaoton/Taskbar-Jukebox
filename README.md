@@ -71,7 +71,7 @@ JAVA_HOME=/path/to/jdk-21 ./gradlew build
 
 ## 许可证
 
-All Rights Reserved。详见 `TEMPLATE_LICENSE.txt`。
+模组本体：All Rights Reserved。MDK 模板文件（如 Gradle Wrapper、`gradlew` 等）仍遵循 `TEMPLATE_LICENSE.txt` 中的 MIT 许可。
 
 
 
@@ -150,4 +150,4 @@ Reference projects: `IMPSMTC`, `JavaMediaTransportControls`, `NetMusic` and `Net
 
 ## License
 
-All Rights Reserved. See `TEMPLATE_LICENSE.txt`.
+The mod itself is All Rights Reserved. The MDK template files (Gradle Wrapper, `gradlew`, etc.) remain under the MIT license in `TEMPLATE_LICENSE.txt`.
