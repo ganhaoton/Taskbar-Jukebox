@@ -111,7 +111,10 @@ configurations {
     runtimeClasspath.extendsFrom localRuntime
     // 仅用于把 dbus-java 的 JDK Unix socket transport 平铺进模组 jar。
     // 不放进 runtimeClasspath，避免与平铺类重复提供 ITransportProvider。
-    mprisTransport
+    // 关闭传递依赖：core 由 implementation/jarJar 单独处理，这里只取 transport 单个 jar。
+    mprisTransport {
+        transitive = false
+    }
 }
 
 dependencies {
