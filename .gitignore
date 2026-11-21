@@ -1,0 +1,59 @@
+### Gradle ###
+.gradle/
+build/
+!gradle/wrapper/gradle-wrapper.jar
+!**/src/**/build/
+# Gradle 本地配置（含本地 JDK 路径等机器相关信息）
+gradle.properties.local
+local.properties
+
+### IntelliJ IDEA ###
+.idea/
+*.iws
+*.iml
+*.ipr
+out/
+!**/src/**/out/
+.run/
+
+### Eclipse ###
+.apt_generated
+.classpath
+.eclipse/
+.factorypath
+.project
+.settings
+.springBeans
+.sts4-cache
+bin/
+!**/src/**/bin/
+
+### VS Code ###
+.vscode/
+
+### macOS ###
+.DS_Store
+
+### Windows ###
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+### Minecraft Modding ###
+# 开发环境运行目录（含世界存档、配置、日志），不入库
+run/
+!**/src/**/run/
+# 数据生成缓存
+**/src/generated/**/.cache/
+# maven-publish 本地输出
+repo/
+!**/src/**/repo/
+# 运行时崩溃报告与日志
+crash-reports/
+logs/
+*.log
+
+### 本项目 ###
+# 已归档的构建产物放在上级 mod 目录，不在本仓库内；此处仅防止误提交临时产物
+*.tmp
+*.bak

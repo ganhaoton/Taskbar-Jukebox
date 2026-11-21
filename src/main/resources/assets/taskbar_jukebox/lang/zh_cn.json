@@ -1,0 +1,5 @@
+{
+  "mod.taskbar_jukebox.name": "窗外的音乐",
+  "mod.taskbar_jukebox.description": "让《网络音乐机》的音乐传入 Windows 任务栏点唱机。",
+  "taskbar_jukebox.configuration.debug": "启用详细诊断日志（默认关闭，开启后输出 [DEBUG] 排错信息）"
+}

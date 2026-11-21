@@ -1,0 +1,5 @@
+{
+  "mod.taskbar_jukebox.name": "Taskbar Jukebox",
+  "mod.taskbar_jukebox.description": "Brings NetMusic playback to the Windows taskbar media controls.",
+  "taskbar_jukebox.configuration.debug": "Enable verbose diagnostic logs (off by default; outputs [DEBUG] messages when on)"
+}

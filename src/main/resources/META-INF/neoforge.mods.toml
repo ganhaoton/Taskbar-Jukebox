@@ -1,0 +1,35 @@
+modLoader="javafml"
+loaderVersion="${loader_version_range}"
+license="${mod_license}"
+
+[[mods]]
+modId="${mod_id}"
+version="${mod_version}"
+displayName="窗外的音乐 / Taskbar Jukebox"
+authors="ganhaoton"
+description='''
+让《网络音乐机》的音乐传入 Windows 任务栏点唱机 (Taskbar Jukebox)。
+仅客户端运行；只推送歌名、作者、播放进度与播放状态，忽略任务栏上的暂停、切歌与进度拖动操作。
+'''
+
+[[dependencies.${mod_id}]]
+    modId="neoforge"
+    type="required"
+    versionRange="[${neo_version},)"
+    ordering="NONE"
+    side="CLIENT"
+
+[[dependencies.${mod_id}]]
+    modId="minecraft"
+    type="required"
+    versionRange="${minecraft_version_range}"
+    ordering="NONE"
+    side="CLIENT"
+
+# NetMusic 缺失时本模组仍可加载，只是不会推送任何曲目。
+[[dependencies.${mod_id}]]
+    modId="netmusic"
+    type="optional"
+    versionRange="[1.0,)"
+    ordering="AFTER"
+    side="CLIENT"
