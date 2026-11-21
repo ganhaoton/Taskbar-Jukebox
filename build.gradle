@@ -109,6 +109,9 @@ runs {
 // "optional", meaning it will not be pulled by dependents of this mod.
 configurations {
     runtimeClasspath.extendsFrom localRuntime
+    // 仅用于把 dbus-java 的 JDK Unix socket transport 平铺进模组 jar。
+    // 不放进 runtimeClasspath，避免与平铺类重复提供 ITransportProvider。
+    mprisTransport
 }
 
 dependencies {
@@ -138,22 +141,19 @@ dependencies {
     // 即使只在 Windows 运行，类校验也需要这些类可解析，否则：
     // NoClassDefFoundError: org/freedesktop/dbus/interfaces/DBusInterface
     // Linux 的 MPRIS 后端也直接使用同一套 dbus-java，因此显式声明 implementation。
-    // transport-native-unixsocket 使用 JDK 16+ 的 Unix domain socket，不是 JNI，
-    // 不引入额外 native 库。
     implementation "com.github.hypfvieh:dbus-java-core:5.0.0"
-    implementation "com.github.hypfvieh:dbus-java-transport-native-unixsocket:5.0.0"
     jarJar("com.github.hypfvieh:dbus-java-core:[5.0.0]") {
         version {
             strictly "[5.0.0]"
             prefer "5.0.0"
         }
     }
-    jarJar("com.github.hypfvieh:dbus-java-transport-native-unixsocket:[5.0.0]") {
-        version {
-            strictly "[5.0.0]"
-            prefer "5.0.0"
-        }
-    }
+
+    // transport-native-unixsocket 使用 JDK 16+ 的 Unix domain socket，不是 JNI。
+    // 它的 module-info 声明了 jdk.net，作为 FML 嵌套库加载时 provider 类可能不可见；
+    // 因此不 jarJar，而是在 processResources 中把类平铺进模组 jar，并显式声明
+    // META-INF/services/org.freedesktop.dbus.spi.transport.ITransportProvider。
+    mprisTransport "com.github.hypfvieh:dbus-java-transport-native-unixsocket:5.0.0"
 
     // Example optional mod dependency with JEI
     // The JEI API is declared for compile time use, while the full JEI artifact is used at runtime
@@ -194,6 +194,14 @@ tasks.withType(ProcessResources).configureEach {
             mod_version            : mod_version,
     ]
     inputs.properties replaceProperties
+    inputs.files(configurations.mprisTransport)
+
+    // 平铺 JDK Unix socket transport，排除 module-info 与它自带的 META-INF，
+    // 避免 FML 按嵌套模块解析时因 jdk.net/未导出包导致 provider 不可见。
+    from({ zipTree(configurations.mprisTransport.singleFile) }) {
+        exclude 'module-info.class'
+        exclude 'META-INF/**'
+    }
 
     filesMatching(['META-INF/neoforge.mods.toml']) {
         expand replaceProperties

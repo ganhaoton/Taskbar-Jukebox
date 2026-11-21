@@ -10,6 +10,7 @@ import com.ganhaoton.Taskbar_Jukebox.media.linux.mpris.MprisMediaPlayer2Player;
 import org.freedesktop.dbus.DBusPath;
 import org.freedesktop.dbus.connections.impl.DBusConnection;
 import org.freedesktop.dbus.connections.impl.DBusConnectionBuilder;
+import org.freedesktop.dbus.connections.transports.TransportBuilder;
 import org.freedesktop.dbus.exceptions.DBusExecutionException;
 import org.freedesktop.dbus.interfaces.DBus;
 import org.freedesktop.dbus.interfaces.Properties;
@@ -76,6 +77,7 @@ public final class LinuxMprisBackend implements MediaSessionBackend,
         }
 
         try {
+            TaskbarJukebox.debug("DBus transport providers: {}", TransportBuilder.getRegisteredBusTypes());
             DBusConnection newConnection = DBusConnectionBuilder.forSessionBus()
                     .withShared(false)
                     .withWeakReferences(false)
