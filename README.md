@@ -4,6 +4,14 @@
 
 这是一个 Minecraft 1.21.1 NeoForge 的**纯客户端**模组：它读取《网络音乐机》（NetMusic）正在播放的曲目信息，单向推送到系统媒体控件（Windows SMTC / Linux MPRIS），供 Windows 任务栏媒体卡片、任务栏歌词插件以及 KDE Plasma 等 MPRIS 桌面媒体控件使用。模组不联网、不改动游戏播放行为。
 
+## 1.1.0 更新
+
+- 读取与推送解耦为 `MediaSessionBackend`，Windows SMTC 行为保持不变。
+- 新增 Linux MPRIS 后端，KDE Plasma 等桌面可显示歌曲信息与进度。
+- 只读语义：Linux 所有 `Can*` 能力位为 `false`，桌面控件不能控制游戏。
+- 无 session bus、服务名冲突、旧 Windows 或初始化失败时自动降级为空模组。
+- 修复 dbus-java transport 在 FML plugin layer 中不可见的问题；不新增 native 依赖。
+
 ## 功能特性
 
 - **只读推送**：推送歌名、作者、播放进度、时长与播放/暂停状态，不写入、不联网。
@@ -27,7 +35,7 @@
 ## 安装
 
 1. 安装 NeoForge 1.21.1（21.1.235+）。
-2. 将构建产物中**带 `-all` 后缀**的 jar（例如 `taskbar_jukebox-1.0.7-all.jar`）放入游戏目录的 `mods` 文件夹。
+2. 将构建产物中**带 `-all` 后缀**的 jar（例如 `taskbar_jukebox-1.1.0-all.jar`）放入游戏目录的 `mods` 文件夹。
 3. 启动游戏，进入世界并用 NetMusic 播放音乐；Windows 任务栏媒体控件、KDE Plasma 媒体控件或歌词插件即可读到曲目信息。
 
 > 注意：不带 `-all` 后缀的是不含前置库的瘦 jar，单独使用会因缺少 `JavaMediaTransportControls` 而无法工作。
@@ -102,6 +110,14 @@ Let the melodies of NetMusic find a second home in your system media controls.
 
 Taskbar Jukebox is a **client-side-only** mod for Minecraft 1.21.1 on NeoForge. It reads the track currently playing in NetMusic (the in-game internet radio) and forwards it, one way, to the system media controls — Windows SMTC or Linux MPRIS — making the song available to Windows taskbar media cards, taskbar lyric plugins and MPRIS desktops such as KDE Plasma. It never connects to the network and never alters playback in the game.
 
+## What's new in 1.1.0
+
+- Reading and publishing are decoupled behind `MediaSessionBackend`; Windows SMTC behaviour is unchanged.
+- New Linux MPRIS backend so KDE Plasma and other MPRIS desktops can show track information and progress.
+- Read-only semantics: every Linux `Can*` capability is `false`; desktop controls cannot control the game.
+- Quiet fallback to a no-op on missing session bus, service-name conflicts, old Windows or initialization failures.
+- Fixed the dbus-java transport not being visible in FML's plugin layer; no new native dependency.
+
 ## Features
 
 - **Read-only forwarding.** Publishes the title, artist, playback position, duration and playing/paused state. Nothing is written back and no network request is made.
@@ -125,7 +141,7 @@ Taskbar Jukebox is a **client-side-only** mod for Minecraft 1.21.1 on NeoForge. 
 ## Installation
 
 1. Install NeoForge 1.21.1 (21.1.235 or newer).
-2. Copy the build artifact whose name ends in **`-all`** (for example `taskbar_jukebox-1.0.7-all.jar`) into the game's `mods` folder.
+2. Copy the build artifact whose name ends in **`-all`** (for example `taskbar_jukebox-1.1.0-all.jar`) into the game's `mods` folder.
 3. Launch the game, join a world and start playback with NetMusic. Windows taskbar media controls, the KDE Plasma media widget and any lyric plugin will now see the track.
 
 > The jar without the `-all` suffix is a thin artifact without the bundled prerequisites; on its own it cannot work because `JavaMediaTransportControls` is missing.
