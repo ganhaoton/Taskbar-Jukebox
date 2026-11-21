@@ -226,6 +226,7 @@ tasks.named('jarJar').configure { jarJarTask ->
                 java.util.zip.ZipEntry entry
                 while ((entry = zin.nextEntry) != null) {
                     if (entry.name == 'module-info.class') {
+                        zin.closeEntry()
                         continue
                     }
                     def copy = new java.util.zip.ZipEntry(entry.name)
