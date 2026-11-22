@@ -23,7 +23,8 @@ public record TrackInfo(
     }
 
     public TrackInfo {
-        title = title == null || title.isEmpty() ? "网络音乐机" : title;
+        // 不要用模组名充当标题：读不到歌名时保持为空，Windows/Linux 后端会自行显示占位内容。
+        title = title == null ? "" : title;
         artist = artist == null ? "" : artist;
         album = album == null ? "" : album;
         trackId = trackId == null ? "" : trackId;

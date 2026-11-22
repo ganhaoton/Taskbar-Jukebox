@@ -117,15 +117,21 @@ public final class NetMusicReader {
         boolean playing = !(currentSound instanceof AbstractTickableSoundInstance instance && instance.isStopped());
 
         if (BACKPACK_SOUND_CLASS.equals(currentSound.getClass().getName())) {
-            // 精妙背包播放：NetMusicBackpackSound 没有 BlockPos，也没有 TileEntityMusicPlayer。
-            // 它持有解析后的 songUrl，NetMusic 歌曲列表里的 SongInfo.songUrl 与之相同，按 URL 反查元数据。
-            String url = stringValue(field(currentSound, "songUrl"));
-            TaskbarJukebox.debugEvery("reader.backpackUrl", 1500, "精妙背包音源 songUrl={}", url);
-            Object songInfo = findSongInfoByUrl(url);
+            // 精妙背包播放：NetMusicBackpackSound 没有 BlockPos，也没有 SongInfo 字段。
+            // 从 StorageSoundHandler 用 sound 反查 storageUuid，再从背包的唱片机升级里取出 CD，
+            // 直接读 CD 的 SONG_INFO component（歌名/歌手/时长都在这里，且随 GUI 同步到客户端）。
+            Object songInfo = BackpackSongInfo.find(currentSound);
             if (songInfo == null) {
-                TaskbarJukebox.debugOnce("reader.backpackInfoMissing",
-                        "未在 NetMusic 歌曲列表中找到 URL 对应的 SongInfo: {}", url);
-            } else {
+                // 兜底：CD 拿不到时再按 URL 在本地歌单里找（只对歌单内的歌曲有效）。
+                String url = stringValue(field(currentSound, "songUrl"));
+                TaskbarJukebox.debugEvery("reader.backpackUrl", 1500, "精妙背包音源 songUrl={}", url);
+                songInfo = findSongInfoByUrl(url);
+                if (songInfo == null) {
+                    TaskbarJukebox.debugOnce("reader.backpackInfoMissing",
+                            "未能从背包 CD 或本地歌单读到 SongInfo: {}", url);
+                }
+            }
+            if (songInfo != null) {
                 Object name = field(songInfo, "songName");
                 title = name instanceof String value ? value : "";
                 artist = joinArtists(field(songInfo, "artists"));

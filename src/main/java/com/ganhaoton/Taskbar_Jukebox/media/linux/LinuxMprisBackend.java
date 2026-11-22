@@ -3,6 +3,7 @@ package com.ganhaoton.Taskbar_Jukebox.media.linux;
 import com.ganhaoton.Taskbar_Jukebox.SystemSupport;
 import com.ganhaoton.Taskbar_Jukebox.TaskbarJukebox;
 import com.ganhaoton.Taskbar_Jukebox.TrackInfo;
+import com.ganhaoton.Taskbar_Jukebox.media.CoverArt;
 import com.ganhaoton.Taskbar_Jukebox.media.MediaSessionBackend;
 import com.ganhaoton.Taskbar_Jukebox.media.PlaybackState;
 import com.ganhaoton.Taskbar_Jukebox.media.linux.mpris.MprisMediaPlayer2;
@@ -118,9 +119,10 @@ public final class LinuxMprisBackend implements MediaSessionBackend,
             return;
         }
         try {
-            Map<String, Variant<?>> built = buildMetadata(track);
+            String artUrl = track.artUrl().isBlank() ? CoverArt.artUrl() : track.artUrl();
+            Map<String, Variant<?>> built = buildMetadata(track, artUrl);
             long newLengthUs = toMicros(track.durationMs());
-            if (!built.equals(metadata) || newLengthUs != lengthUs) {
+            if (!built.equals(metadata) || newLengthUs != lengthUs || CoverArt.stampChanged()) {
                 metadata = built;
                 lengthUs = newLengthUs;
                 metadataDirty = true;
@@ -300,7 +302,7 @@ public final class LinuxMprisBackend implements MediaSessionBackend,
         return Math.max(0L, pos);
     }
 
-    private static Map<String, Variant<?>> buildMetadata(TrackInfo track) {
+    private static Map<String, Variant<?>> buildMetadata(TrackInfo track, String artUrl) {
         Map<String, Variant<?>> result = new LinkedHashMap<>();
         result.put("mpris:trackid", new Variant<>(new DBusPath(trackId(track))));
         result.put("mpris:length", new Variant<>(toMicros(track.durationMs())));
@@ -308,8 +310,8 @@ public final class LinuxMprisBackend implements MediaSessionBackend,
         List<String> artists = track.artist().isBlank() ? List.of() : List.of(track.artist());
         result.put("xesam:artist", new Variant<>(artists, "as"));
         result.put("xesam:album", new Variant<>(track.album()));
-        if (!track.artUrl().isBlank()) {
-            result.put("mpris:artUrl", new Variant<>(track.artUrl()));
+        if (!artUrl.isBlank()) {
+            result.put("mpris:artUrl", new Variant<>(artUrl));
         }
         return Collections.unmodifiableMap(result);
     }

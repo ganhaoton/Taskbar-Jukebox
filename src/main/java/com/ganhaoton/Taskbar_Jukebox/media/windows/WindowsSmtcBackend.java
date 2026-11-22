@@ -3,6 +3,7 @@ package com.ganhaoton.Taskbar_Jukebox.media.windows;
 import com.ganhaoton.Taskbar_Jukebox.SystemSupport;
 import com.ganhaoton.Taskbar_Jukebox.TaskbarJukebox;
 import com.ganhaoton.Taskbar_Jukebox.TrackInfo;
+import com.ganhaoton.Taskbar_Jukebox.media.CoverArt;
 import com.ganhaoton.Taskbar_Jukebox.media.MediaSessionBackend;
 import com.ganhaoton.Taskbar_Jukebox.media.PlaybackState;
 import io.github.selemba1000.JMTC;
@@ -100,6 +101,9 @@ public final class WindowsSmtcBackend implements MediaSessionBackend {
             jmtc.setPosition(0L);
             jmtc.setPlayingState(JMTCPlayingState.CLOSED);
             jmtc.updateDisplay();
+            // 封面不走 JMTCMusicProperties.art：上游把 File 转成 file:/ URI 且无限等待，
+            // 加载失败会永久卡死媒体线程。CoverArt 直接向 DLL 推原生路径并限时等待。
+            CoverArt.pushThumbnail(jmtc);
             ready = true;
             TaskbarJukebox.debug("SMTC 初始状态已推送: CLOSED, 空曲目");
             TaskbarJukebox.LOGGER.info("Windows 媒体播放控件已就绪。");
@@ -142,14 +146,21 @@ public final class WindowsSmtcBackend implements MediaSessionBackend {
         String fingerprint = track.title() + '\u0000' + track.artist() + '\u0000'
                 + track.durationMs() + '\u0000' + state.name();
         boolean changed = !fingerprint.equals(lastFingerprint);
+        boolean coverChanged = CoverArt.stampChanged();
         if (changed) {
             TaskbarJukebox.debug("曲目元数据变化: {}", track);
         }
-        if (!changed && now - lastPush < 250L) {
+        if (coverChanged) {
+            TaskbarJukebox.debug("封面文件已变化，重新推送图标");
+        }
+        if (!changed && !coverChanged && now - lastPush < 250L) {
             return;
         }
 
         try {
+            if (coverChanged) {
+                CoverArt.pushThumbnail(jmtc);
+            }
             jmtc.setMediaProperties(new JMTCMusicProperties(
                     track.title(), track.artist(), "", "", new String[0], 0, 1, null));
             jmtc.setTimelineProperties(new JMTCTimelineProperties(
