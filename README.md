@@ -43,7 +43,7 @@
 ## 安装
 
 1. 安装 NeoForge 1.21.1（21.1.235+）。
-2. 将构建产物中**带 `-all` 后缀**的 jar（例如 `taskbar_jukebox-1.2.0-all.jar`）放入游戏目录的 `mods` 文件夹。
+2. 将构建产物中**带 `-all` 后缀**的 jar（例如 `taskbar_jukebox-1.2.1-all.jar`）放入游戏目录的 `mods` 文件夹。
 3. 启动游戏，进入世界并用 NetMusic 播放音乐；Windows 任务栏媒体控件、KDE Plasma 媒体控件或歌词插件即可读到曲目信息。
 
 > 注意：不带 `-all` 后缀的是不含前置库的瘦 jar，单独使用会因缺少 `JavaMediaTransportControls` 而无法工作。
@@ -119,6 +119,10 @@ busctl --user get-property org.mpris.MediaPlayer2.taskbarjukebox /org/mpris/Medi
 `CanControl/CanPlay/CanPause/CanSeek/CanGoNext/CanGoPrevious` 应全部为 `false`；桌面控件不应能控制游戏。
 
 ## 更新日志
+
+### 1.2.1
+
+- 修复服务器上背包易主后曲目不更新：把背包扔给其他玩家、对方换歌后，本端曾一直停留在旧歌，直到打开背包才刷新。改为在收到 NetMusic 的播放广播时直接缓存其中的完整曲目信息，不再依赖滞后的背包内容同步，无需打开 GUI 即可正确显示。
 
 ### 1.2.0
 
@@ -212,7 +216,7 @@ Taskbar Jukebox is a **client-side-only** mod for Minecraft 1.21.1 on NeoForge. 
 ## Installation
 
 1. Install NeoForge 1.21.1 (21.1.235 or newer).
-2. Copy the build artifact whose name ends in **`-all`** (for example `taskbar_jukebox-1.2.0-all.jar`) into the game's `mods` folder.
+2. Copy the build artifact whose name ends in **`-all`** (for example `taskbar_jukebox-1.2.1-all.jar`) into the game's `mods` folder.
 3. Launch the game, join a world and start playback with NetMusic. Windows taskbar media controls, the KDE Plasma media widget and any lyric plugin will now see the track.
 
 > The jar without the `-all` suffix is a thin artifact without the bundled prerequisites; on its own it cannot work because `JavaMediaTransportControls` is missing.
@@ -288,6 +292,10 @@ busctl --user get-property org.mpris.MediaPlayer2.taskbarjukebox /org/mpris/Medi
 All `CanControl/CanPlay/CanPause/CanSeek/CanGoNext/CanGoPrevious` capabilities should be `false`; desktop controls must not be able to control the game.
 
 ## Changelog
+
+### 1.2.1
+
+- Fixed the track not updating on a server after a backpack changes hands: when you hand a backpack to another player and they play a different song, this client used to stay on the old track until the backpack GUI was opened. The mod now caches the complete track information carried by NetMusic's playback broadcast instead of relying on lagging backpack-content sync, so the correct song shows up without opening any GUI.
 
 ### 1.2.0
 

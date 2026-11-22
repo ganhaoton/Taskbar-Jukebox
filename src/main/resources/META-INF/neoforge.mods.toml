@@ -12,6 +12,9 @@ description='''
 仅客户端运行；只推送歌名、作者、播放进度与播放状态，不控制游戏内播放。
 '''
 
+[[mixins]]
+config="taskbar_jukebox.mixins.json"
+
 [[dependencies.${mod_id}]]
     modId="neoforge"
     type="required"

@@ -85,6 +85,14 @@ final class BackpackSongInfo {
             }
             rememberUrl(uuid, sound);
 
+            // 最高优先级：服务端广播的权威 SongInfo（由 Mixin 在 payload 入口缓存）。
+            // 背包易主后本客户端收不到 contents 同步，本地 CD 会停在换歌前；
+            // payload 则是发给附近所有玩家、携带完整元数据且随每次播放更新，不受影响。
+            song = cachedSongInfo(uuid, sound);
+            if (song != null) {
+                return song;
+            }
+
             song = fromOpenContainer(uuid);
             if (song == null) {
                 song = fromUuidCache(uuid);
@@ -101,6 +109,13 @@ final class BackpackSongInfo {
                 // 玩家打开背包时唱片就在槽位里，不依赖 storageUuid / wrapper 链路。
                 song = fromAnyCdInContainer();
             }
+            // 兜底路径读的是背包 contents 的本地副本；背包易主后它可能陈旧。
+            // 用音源 URL 校验，宁可显示空也不显示上一首的错误歌名。
+            if (song != null && !urlMatches(song, sound)) {
+                TaskbarJukebox.debugEvery("bp.staleDisc", 2000,
+                        "背包 CD 与当前音源 URL 不符（疑似陈旧 contents），丢弃: uuid={}", uuid);
+                song = null;
+            }
             if (song == null) {
                 TaskbarJukebox.debugEvery("bp.noDisc", 2000,
                         "按 storageUuid={} 未找到正在播放的唱片 CD", uuid);
@@ -110,6 +125,43 @@ final class BackpackSongInfo {
             TaskbarJukebox.debugOnce("bp.error", "读取精妙背包唱片信息失败", e);
             return null;
         }
+    }
+
+    /**
+     * 从 payload 缓存取权威 SongInfo。它在每次 NetMusicDiscPayload 到达时按 storageUuid
+     * 覆盖，因此天然对应该背包当前播放的曲目；背包易主、GUI 开关都不影响。
+     * 用音源 URL 做一致性校验，防止极少数情况下读到尚未被新 payload 覆盖的旧值。
+     */
+    private static Object cachedSongInfo(Object uuid, Object sound) {
+        if (!(uuid instanceof UUID id)) {
+            return null;
+        }
+        Object song = PayloadSongCache.get(id);
+        if (song == null) {
+            return null;
+        }
+        String soundUrl = stringOf(fieldOf(sound, "songUrl"));
+        String songUrl = stringOf(fieldOf(song, "songUrl"));
+        // URL 都可读且不一致时丢弃（宁可退回其它路径，也不显示错歌）。
+        // 任一 URL 读不到则放行：payload 的 songUrl 与音源 URL 可能因 resolver 不同而不等。
+        if (soundUrl != null && songUrl != null && !soundUrl.equals(songUrl)) {
+            TaskbarJukebox.debugEvery("bp.cacheUrlMismatch", 2000,
+                    "payload 缓存 SongInfo 的 URL 与音源不符，丢弃: song={}, sound={}", songUrl, soundUrl);
+            return null;
+        }
+        TaskbarJukebox.debugEvery("bp.source.payload", 2000,
+                "从 NetMusicDiscPayload 缓存读到权威 SongInfo（uuid={}）", id);
+        return song;
+    }
+
+    /** SongInfo 的 URL 与音源 URL 是否一致；任一读不到时放行，避免误杀。 */
+    private static boolean urlMatches(Object songInfo, Object sound) {
+        String songUrl = stringOf(fieldOf(songInfo, "songUrl"));
+        String soundUrl = stringOf(fieldOf(sound, "songUrl"));
+        if (songUrl == null || soundUrl == null) {
+            return true;
+        }
+        return songUrl.equals(soundUrl);
     }
 
     /**
@@ -283,18 +335,30 @@ final class BackpackSongInfo {
                 return null;
             }
             String myUrl = stringOf(fieldOf(sound, "songUrl"));
+            Object urlMatch = null;
+            int urlMatches = 0;
             for (Map.Entry<?, ?> entry : sounds.entrySet()) {
                 if (entry.getValue() == sound) {
-                    return entry.getKey();
+                    return entry.getKey(); // 精确实例匹配最可靠，直接返回
                 }
                 // 音源实例可能被后续 payload 替换（同一 uuid 收到第二个包），
                 // 我们手里的 tickingSounds 是旧实例，Map 里是新实例。URL 相同即视为同一曲目。
+                // 但多个玩家可能同时播同一首歌（URL 相同），此时不能随便取第一个，
+                // 否则会把别的玩家背包的 uuid 套到本音源上。候选不唯一就放弃 URL 兜底。
                 if (myUrl != null && entry.getValue() != null) {
                     String theirUrl = stringOf(fieldOf(entry.getValue(), "songUrl"));
                     if (myUrl.equals(theirUrl)) {
-                        return entry.getKey();
+                        urlMatch = entry.getKey();
+                        urlMatches++;
                     }
                 }
+            }
+            if (urlMatches == 1) {
+                return urlMatch;
+            }
+            if (urlMatches > 1) {
+                TaskbarJukebox.debugEvery("bp.uuidAmbiguous", 2000,
+                        "多个背包音源播放同一首歌（URL={}），无法确定 storageUuid", myUrl);
             }
         } catch (Throwable e) {
             TaskbarJukebox.debugOnce("bp.uuidLookup", "反查 storageUuid 失败", e);
