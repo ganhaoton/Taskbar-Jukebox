@@ -18,14 +18,17 @@ import java.util.concurrent.ConcurrentHashMap;
 /**
  * 只读取 NetMusic 客户端内存里的播放状态，不修改、不联网、不依赖 NetMusic 的编译期 API。
  *
- * <p>进度取自 NetMusicSound.tick（20 tick/秒），歌名与作者取自对应方块实体里的 CD 数据组件。
- * 这样比读取方块实体里同步不及时的剩余倒计时准确。</p>
+ * <p>进度取自 NetMusic 音源的 tick（20 tick/秒），比读取方块实体里同步不及时的剩余倒计时准确。
+ * 网络音乐机走 NetMusicSound，歌名/作者从对应方块实体里的 CD 读取；
+ * 精妙背包走 NetMusicBackpackSound，没有 BlockPos，按音源持有的 songUrl 从 NetMusic 歌曲列表反查 SongInfo。</p>
  *
  * <p>注意 1.21.1 的 SoundEngine.tickingSounds 是 {@code List<TickableSoundInstance>}，
  * 不是 Map；instanceToChannel 才是 Map。两个来源都收集，避免遗漏。</p>
  */
 public final class NetMusicReader {
     private static final String SOUND_CLASS = "com.github.tartaricacid.netmusic.client.audio.NetMusicSound";
+    private static final String BACKPACK_SOUND_CLASS = "com.github.tartaricacid.netmusic.compat.sbackpack.NetMusicBackpackSound";
+    private static final String MUSIC_LIST_CLASS = "com.github.tartaricacid.netmusic.config.MusicListManage";
     private static final String PLAYER_TE_CLASS = "com.github.tartaricacid.netmusic.tileentity.TileEntityMusicPlayer";
     private static final String CD_CLASS = "com.github.tartaricacid.netmusic.item.ItemMusicCD";
 
@@ -58,7 +61,7 @@ public final class NetMusicReader {
         }
 
         // 两个来源都收集：tickingSounds(List) 是 tick 中的可 tick 音源，
-        // instanceToChannel(Map) 是全部在发声的音源。NetMusicSound 属于前者。
+        // instanceToChannel(Map) 是全部在发声的音源。两类 NetMusic 音源都在 tickingSounds 里。
         Set<Object> sounds = new LinkedHashSet<>();
         collect(sounds, field(engine, "tickingSounds"), "tickingSounds");
         collect(sounds, field(engine, "instanceToChannel"), "instanceToChannel");
@@ -73,7 +76,7 @@ public final class NetMusicReader {
         int candidates = 0;
         int stopped = 0;
         for (Object sound : sounds) {
-            if (sound == null || !SOUND_CLASS.equals(sound.getClass().getName())) {
+            if (sound == null || !isNetMusicSound(sound)) {
                 continue;
             }
             candidates++;
@@ -113,39 +116,63 @@ public final class NetMusicReader {
         // 不再用它决定 PLAYING/PAUSED，避免“明明在播放却显示未播放”。
         boolean playing = !(currentSound instanceof AbstractTickableSoundInstance instance && instance.isStopped());
 
-        Object posValue = field(currentSound, "pos");
-        if (!(posValue instanceof BlockPos pos)) {
-            TaskbarJukebox.debugOnce("reader.posMissing", "音源缺少 BlockPos 坐标: {}", posValue);
+        if (BACKPACK_SOUND_CLASS.equals(currentSound.getClass().getName())) {
+            // 精妙背包播放：NetMusicBackpackSound 没有 BlockPos，也没有 TileEntityMusicPlayer。
+            // 它持有解析后的 songUrl，NetMusic 歌曲列表里的 SongInfo.songUrl 与之相同，按 URL 反查元数据。
+            String url = stringValue(field(currentSound, "songUrl"));
+            TaskbarJukebox.debugEvery("reader.backpackUrl", 1500, "精妙背包音源 songUrl={}", url);
+            Object songInfo = findSongInfoByUrl(url);
+            if (songInfo == null) {
+                TaskbarJukebox.debugOnce("reader.backpackInfoMissing",
+                        "未在 NetMusic 歌曲列表中找到 URL 对应的 SongInfo: {}", url);
+            } else {
+                Object name = field(songInfo, "songName");
+                title = name instanceof String value ? value : "";
+                artist = joinArtists(field(songInfo, "artists"));
+                Object seconds = field(songInfo, "songTime");
+                if (seconds instanceof Integer value && value > 0) {
+                    durationMs = value * 1000L;
+                    TaskbarJukebox.debugEvery("reader.backpackDuration", 1500,
+                            "用背包 SongInfo.songTime 覆盖时长: {} 秒", value);
+                }
+                TaskbarJukebox.debugEvery("reader.backpackInfo", 1500,
+                        "精妙背包曲目: title={}, artist={}", title, artist);
+            }
         } else {
-            BlockEntity blockEntity = mc.level.getBlockEntity(pos);
-            TaskbarJukebox.debugEvery("reader.be", 1500,
-                    "坐标 {} 对应的方块实体: {}（期望 {}）",
-                    pos, blockEntity == null ? "null" : blockEntity.getClass().getName(), PLAYER_TE_CLASS);
+            Object posValue = field(currentSound, "pos");
+            if (!(posValue instanceof BlockPos pos)) {
+                TaskbarJukebox.debugOnce("reader.posMissing", "音源缺少 BlockPos 坐标: {}", posValue);
+            } else {
+                BlockEntity blockEntity = mc.level.getBlockEntity(pos);
+                TaskbarJukebox.debugEvery("reader.be", 1500,
+                        "坐标 {} 对应的方块实体: {}（期望 {}）",
+                        pos, blockEntity == null ? "null" : blockEntity.getClass().getName(), PLAYER_TE_CLASS);
 
-            if (blockEntity != null && PLAYER_TE_CLASS.equals(blockEntity.getClass().getName())) {
-                Object flag = call(blockEntity, "isPlay");
-                TaskbarJukebox.debugEvery("reader.isPlay", 1500,
-                        "方块实体 isPlay={}（仅参考，播放状态以音源存活为准）", flag);
+                if (blockEntity != null && PLAYER_TE_CLASS.equals(blockEntity.getClass().getName())) {
+                    Object flag = call(blockEntity, "isPlay");
+                    TaskbarJukebox.debugEvery("reader.isPlay", 1500,
+                            "方块实体 isPlay={}（仅参考，播放状态以音源存活为准）", flag);
 
-                Object inventory = call(blockEntity, "getPlayerInv");
-                Object stack = inventory == null ? null : call(inventory, "getStackInSlot", 0);
-                TaskbarJukebox.debugEvery("reader.cd", 1500,
-                        "唱片 inventory={}, stack={}",
-                        inventory == null ? "null" : inventory.getClass().getName(),
-                        stack instanceof ItemStack item ? item.getDisplayName().getString() : stack);
+                    Object inventory = call(blockEntity, "getPlayerInv");
+                    Object stack = inventory == null ? null : call(inventory, "getStackInSlot", 0);
+                    TaskbarJukebox.debugEvery("reader.cd", 1500,
+                            "唱片 inventory={}, stack={}",
+                            inventory == null ? "null" : inventory.getClass().getName(),
+                            stack instanceof ItemStack item ? item.getDisplayName().getString() : stack);
 
-                if (stack instanceof ItemStack itemStack && !itemStack.isEmpty()) {
-                    Object songInfo = getSongInfo(itemStack);
-                    TaskbarJukebox.debugEvery("reader.songInfo", 1500, "SongInfo={}", songInfo);
-                    if (songInfo != null) {
-                        Object name = field(songInfo, "songName");
-                        title = name instanceof String value ? value : "";
-                        artist = joinArtists(field(songInfo, "artists"));
-                        Object seconds = field(songInfo, "songTime");
-                        if (seconds instanceof Integer value && value > 0) {
-                            durationMs = value * 1000L;
-                            TaskbarJukebox.debugEvery("reader.duration", 1500,
-                                    "用 SongInfo.songTime 覆盖时长: {} 秒", value);
+                    if (stack instanceof ItemStack itemStack && !itemStack.isEmpty()) {
+                        Object songInfo = getSongInfo(itemStack);
+                        TaskbarJukebox.debugEvery("reader.songInfo", 1500, "SongInfo={}", songInfo);
+                        if (songInfo != null) {
+                            Object name = field(songInfo, "songName");
+                            title = name instanceof String value ? value : "";
+                            artist = joinArtists(field(songInfo, "artists"));
+                            Object seconds = field(songInfo, "songTime");
+                            if (seconds instanceof Integer value && value > 0) {
+                                durationMs = value * 1000L;
+                                TaskbarJukebox.debugEvery("reader.duration", 1500,
+                                        "用 SongInfo.songTime 覆盖时长: {} 秒", value);
+                            }
                         }
                     }
                 }
@@ -155,6 +182,39 @@ public final class NetMusicReader {
         TrackInfo result = new TrackInfo(title, artist, positionMs, durationMs, playing);
         TaskbarJukebox.debugEvery("reader.result", 1500, "读取结果: {}", result);
         return result;
+    }
+
+    /** 网络音乐机与精妙背包两类音源都算 NetMusic。 */
+    private static boolean isNetMusicSound(Object sound) {
+        String name = sound.getClass().getName();
+        return SOUND_CLASS.equals(name) || BACKPACK_SOUND_CLASS.equals(name);
+    }
+
+    /** 精妙背包音源只保留 songUrl，从 NetMusic 歌曲列表按 URL 反查 SongInfo；不联网。 */
+    private static Object findSongInfoByUrl(String url) {
+        if (url == null || url.isEmpty()) {
+            return null;
+        }
+        try {
+            Object songs = Class.forName(MUSIC_LIST_CLASS).getField("SONGS").get(null);
+            if (songs instanceof Collection<?> collection) {
+                for (Object song : collection) {
+                    if (song != null && url.equals(stringValue(field(song, "songUrl")))) {
+                        return song;
+                    }
+                }
+            } else {
+                TaskbarJukebox.debugOnce("reader.musicListType",
+                        "MusicListManage.SONGS 类型异常: {}", songs);
+            }
+        } catch (Throwable e) {
+            TaskbarJukebox.debugOnce("reader.musicListFail", "读取 NetMusic 歌曲列表失败", e);
+        }
+        return null;
+    }
+
+    private static String stringValue(Object value) {
+        return value == null ? null : value.toString();
     }
 
     /** 把 Iterable（List/Set）或 Map 的键收集进 out，兼容两种字段实现。 */
