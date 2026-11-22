@@ -1,5 +1,6 @@
 package com.ganhaoton.Taskbar_Jukebox;
 
+import java.lang.reflect.Method;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -19,7 +20,40 @@ import java.util.concurrent.ConcurrentHashMap;
 public final class PayloadSongCache {
     private static final Map<UUID, Object> SONGS = new ConcurrentHashMap<>();
 
+    /** NetMusicDiscPayload 的 record 访问器，首次调用时解析并缓存。 */
+    private static volatile Method uuidAccessor;
+    private static volatile Method songInfoAccessor;
+
     private PayloadSongCache() {
+    }
+
+    /**
+     * 由 Mixin 调用：直接传入 payload 实例，反射取出 storageUuid 与 SongInfo 后缓存。
+     *
+     * <p>刻意用 Object + 反射而不是直接引用 NetMusic 的类型，这样本模组的编译期
+     * 完全不依赖《网络音乐机》的 jar，对方版本改名/未安装都不会影响编译与启动。</p>
+     */
+    public static void putFromPayload(Object payload) {
+        if (payload == null) {
+            return;
+        }
+        try {
+            Method uuidGetter = uuidAccessor;
+            Method songGetter = songInfoAccessor;
+            if (uuidGetter == null || songGetter == null) {
+                Class<?> payloadClass = payload.getClass();
+                uuidGetter = payloadClass.getMethod("storgeUuid");
+                songGetter = payloadClass.getMethod("songInfo");
+                uuidAccessor = uuidGetter;
+                songInfoAccessor = songGetter;
+            }
+            Object uuid = uuidGetter.invoke(payload);
+            if (uuid instanceof UUID storageUuid) {
+                put(storageUuid, songGetter.invoke(payload));
+            }
+        } catch (Throwable e) {
+            TaskbarJukebox.debugOnce("payload.cacheFail", "缓存 payload 的 SongInfo 失败", e);
+        }
     }
 
     /** 由 Mixin 调用：记录某个 storage 当前正在播放的权威 SongInfo。 */

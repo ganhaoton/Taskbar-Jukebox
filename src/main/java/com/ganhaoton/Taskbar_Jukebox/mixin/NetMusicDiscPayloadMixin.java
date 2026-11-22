@@ -1,10 +1,10 @@
 package com.ganhaoton.Taskbar_Jukebox.mixin;
 
 import com.ganhaoton.Taskbar_Jukebox.PayloadSongCache;
-import com.github.tartaricacid.netmusic.compat.sbackpack.NetMusicDiscPayload;
 import net.neoforged.neoforge.network.handling.IPayloadContext;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
+import org.spongepowered.asm.mixin.injection.Coerce;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
@@ -15,17 +15,21 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
  * 背包易主后本客户端又收不到背包 contents 同步，导致从背包 CD 读到旧歌。
  * 这里在 payload 入口把完整 SongInfo 按 storageUuid 存一份，读取器即可拿到权威数据。</p>
  *
- * <p>只加一行旁路写入，不改变 NetMusic 的任何行为。目标类是第三方模组类，
- * 因此 {@code remap = false}。NetMusic 未安装时该 mixin 会被安静跳过。</p>
+ * <p>目标类用字符串 {@code targets} 声明、参数用 {@code @Coerce Object} 接收，
+ * 因此本模组的编译期不依赖《网络音乐机》的 jar（Modrinth 上也不会有人把对方 jar
+ * 塞进源码仓库）。运行时由 Mixin 在目标类存在时应用；未安装《网络音乐机》时
+ * 该 mixin 会被安静跳过，不影响启动。</p>
+ *
+ * <p>目标类是第三方模组类，因此 {@code remap = false}。</p>
  */
-@Mixin(value = NetMusicDiscPayload.class, remap = false)
+@Mixin(targets = "com.github.tartaricacid.netmusic.compat.sbackpack.NetMusicDiscPayload", remap = false)
 public class NetMusicDiscPayloadMixin {
     @Inject(method = "handlePayload", at = @At("HEAD"), remap = false)
-    private static void taskbarJukebox$cacheSongInfo(NetMusicDiscPayload payload,
+    private static void taskbarJukebox$cacheSongInfo(@Coerce Object payload,
                                                      IPayloadContext context,
                                                      CallbackInfo ci) {
         try {
-            PayloadSongCache.put(payload.storgeUuid(), payload.songInfo());
+            PayloadSongCache.putFromPayload(payload);
         } catch (Throwable ignored) {
             // 旁路缓存失败绝不能影响 NetMusic 的正常处理
         }

@@ -121,10 +121,6 @@ dependencies {
     // For all intends and purposes: You can treat this dependency as if it is a normal library you would use.
     implementation "net.neoforged:neoforge:${neo_version}"
 
-    // Mixin 拦截 NetMusicDiscPayload 时需要该类型出现在编译期签名里。
-    // 仅本地编译可见，不打包、不入库（jar 放在 libs/compile/，从游戏 mods 复制）。
-    compileOnly files('libs/compile/netmusic-compile-only.jar')
-
     // Windows 媒体播放控件前置库；随模组以 jarJar 方式打包，玩家无需单独安装。
     implementation "io.github.selemba1000:JavaMediaTransportControls:0.0.3"
     localRuntime "io.github.selemba1000:JavaMediaTransportControls:0.0.3"
